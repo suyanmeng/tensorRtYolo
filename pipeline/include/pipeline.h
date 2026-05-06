@@ -1,0 +1,77 @@
+#pragma once
+#include <condition_variable>
+#include <mutex>
+#include <queue>
+#include <thread>
+
+#include "gpumemorypool.h"
+#include "postprocessor.h"
+#include "preprocessor.h"
+#include "trtengine.h"
+#include "visualizer.h"
+
+namespace TensorRTYolo {
+
+class Pipeline {
+   public:
+    Pipeline(const std::string& engine_path);
+    ~Pipeline();
+
+    void run();
+    void stop();
+    bool setImageDir(const std::string& input_dir,
+                     const std::string& output_dir);
+    bool setVideoPath(const std::string& video_src_path,
+                      const std::string& video_dst_path);
+
+   private:
+    // 线程1：读取图像 + 组建Batch
+    void threadImageProducer();
+    void threadVideoProducer();
+
+    // 线程2：GPU预处理 + 推理 + 后处理
+    void threadInfer();
+
+    // 线程3：可视化 + 保存结果
+    void threadVisSave();
+
+    // 工具函数
+    void calculateBatchData(const std::shared_ptr<BatchData>& data);
+    void saveResult(const std::shared_ptr<const BatchData>& batch_data,
+                          const std::shared_ptr<const BatchResult>& batch_result);
+
+   private:
+    std::string input_dir_;
+    std::string output_dir_;
+    bool video_flag_ = false;
+    cv::VideoCapture cap_;
+    cv::VideoWriter writer_;
+
+    std::unique_ptr<PreProcessor> pre_;
+    std::unique_ptr<TrtEngine> trt_;
+    std::unique_ptr<PostProcessor> post_;
+    std::unique_ptr<Visualizer> vis_;
+
+    // GPU 内存池（4块最大显存）
+    std::unique_ptr<GPUMemoryPool> gpu_pool_;
+    std::thread t_producer_;
+    std::thread t_preprocess_;
+    std::thread t_infer_post_;
+
+    std::queue<std::shared_ptr<BatchData>> batch_queue_;  // 待处理队列
+    std::queue<std::pair<std::shared_ptr<BatchData>, std::shared_ptr<BatchResult>>>
+        infered_queue_;  // 推理后队列
+
+    std::mutex mtx_batch_;
+    std::mutex mtx_prep_;
+    std::condition_variable cv_batch_;
+    std::condition_variable cv_prep_;
+
+    bool infer_stop_flag_ = false;
+    bool prod_stop_flag_ = false;
+
+    long long total_images_ = 0;
+    std::chrono::_V2::steady_clock::time_point start_time_;
+};
+
+}  // namespace TensorRTYolo
