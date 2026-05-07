@@ -7,7 +7,7 @@ void parseArguments(int argc, char** argv, std::string& engine_path,
                     std::string& output_dir) {
     if (argc < 4) {
         std::cerr << "Usage: " << argv[0]
-                  << " -e <engine> (-i <imgs_dir> | -v <video_path>) [-o <output_dir>] "
+                  << " -e <engine_path> (-i <imgs_dir> | -v <video_path>) -o <output_dir> "
                   << std::endl;
         std::exit(EXIT_FAILURE);
     }
