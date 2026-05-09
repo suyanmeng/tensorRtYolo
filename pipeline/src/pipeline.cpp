@@ -163,6 +163,19 @@ void Pipeline::threadVideoProducer() {
 
     std::vector<ImageData> batch_cache;
     batch_cache.reserve(max_batch_size);
+    auto pushDataToBatchQueue = [this, max_batch_size](
+                                    std::vector<ImageData>& batch_cache) {
+        auto data = std::make_shared<BatchData>();
+        data->images = std::move(batch_cache);
+        {
+            std::lock_guard<std::mutex> lock(mtx_batch_);
+            batch_queue_.push(data);
+            cv_batch_
+                .notify_one();  // 待视频全部读取完成后，再通知推理线程，注释这个，用来测纯推理线程时间
+        }
+        batch_cache.clear();
+        batch_cache.reserve(max_batch_size);
+    };
 
     while (true) {
         bool success = cap_.read(frame);
@@ -173,27 +186,12 @@ void Pipeline::threadVideoProducer() {
                       std::make_shared<cv::Mat>(std::move(frame))});
 
         if (batch_cache.size() >= max_batch_size) {
-            auto data = std::make_shared<BatchData>();
-            data->images = std::move(batch_cache);
-            {
-                std::lock_guard<std::mutex> lock(mtx_batch_);
-                batch_queue_.push(data);
-                cv_batch_
-                    .notify_one();  // 待视频全部读取完成后，再通知推理线程，注释这个，用来测纯推理线程时间
-            }
-            batch_cache.clear();
-            batch_cache.reserve(max_batch_size);
+            pushDataToBatchQueue(batch_cache);
         }
     }
     // 剩余帧推送
     if (!batch_cache.empty()) {
-        auto data = std::make_shared<BatchData>();
-        data->images = std::move(batch_cache);
-        {
-            std::lock_guard<std::mutex> lock(mtx_batch_);
-            batch_queue_.push(data);
-            cv_batch_.notify_one();
-        }
+        pushDataToBatchQueue(batch_cache);
     }
     // 生产结束
     {
